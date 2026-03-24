@@ -300,5 +300,75 @@ export interface UserSession {
   spreadsheetId: string;
   folderId?: string;
   token?: string;
-  role: 'admin' | 'crew'; 
+  role: 'admin' | 'crew';
+}
+
+// === SUPABASE DATABASE TYPES ===
+
+export interface DbCompany {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbProfile {
+  id: string;
+  company_id: string;
+  role: 'admin' | 'crew';
+  display_name: string | null;
+  created_at: string;
+}
+
+export interface DbCompanySettings {
+  company_id: string;
+  company_profile: CompanyProfile;
+  yields: CalculatorState['yields'];
+  costs: CalculatorState['costs'];
+  pricing_mode: 'level_pricing' | 'sqft_pricing';
+  sqft_rates: { wall: number; roof: number };
+  expenses_defaults: EstimateExpenses;
+}
+
+export interface DbFoamStock {
+  company_id: string;
+  open_cell_sets_on_hand: number;
+  open_cell_sets_reserved: number;
+  closed_cell_sets_on_hand: number;
+  closed_cell_sets_reserved: number;
+  lifetime_usage_open: number;
+  lifetime_usage_closed: number;
+}
+
+export interface DbWarehouseItem {
+  id: string;
+  company_id: string;
+  name: string;
+  quantity_on_hand: number;
+  quantity_reserved: number;
+  unit: string;
+  unit_cost: number;
+}
+
+export interface DbEstimateMaterial {
+  id: string;
+  estimate_id: string;
+  warehouse_item_id: string | null;
+  name: string;
+  quantity_estimated: number;
+  quantity_actual: number | null;
+  unit: string;
+  unit_cost: number;
+}
+
+export interface DbInventoryTransaction {
+  id: string;
+  company_id: string;
+  estimate_id: string | null;
+  warehouse_item_id: string | null;
+  type: 'reserve' | 'release' | 'consume' | 'adjust';
+  quantity: number;
+  notes: string;
+  performed_by: string | null;
+  created_at: string;
 }
