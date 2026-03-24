@@ -273,7 +273,7 @@ export const useEstimates = () => {
       generateWorkOrderPDF(appData, record);
 
       // 5. Persist warehouse update to Supabase (background)
-      if (session?.spreadsheetId) {
+      if (session?.companyId) {
         updateFoamStock({
           company_id: session.spreadsheetId,
           open_cell_sets_on_hand: newWarehouse.openCellSets,
@@ -314,7 +314,7 @@ export const useEstimates = () => {
     dispatch({ type: 'SET_VIEW', payload: 'warehouse' });
 
     // Sync foam stock to Supabase
-    if (session?.spreadsheetId) {
+    if (session?.companyId) {
       updateFoamStock({
         company_id: session.spreadsheetId,
         open_cell_sets_on_hand: newWarehouse.openCellSets,

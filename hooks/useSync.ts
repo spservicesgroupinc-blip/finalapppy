@@ -30,7 +30,7 @@ export const useSync = () => {
             payload: {
               username: authSession.email,
               companyName: authSession.companyName,
-              spreadsheetId: authSession.companyId, // companyId stored here for compatibility
+              companyId: authSession.companyId,
               role: authSession.role,
             },
           });
@@ -174,7 +174,7 @@ export const useSync = () => {
 
     try {
       const settingsPayload: Partial<DbCompanySettings> = {
-        company_id: session.spreadsheetId, // companyId
+        company_id: session.companyId, // companyId
         company_profile: appData.companyProfile,
         yields: appData.yields,
         costs: appData.costs,
@@ -187,7 +187,7 @@ export const useSync = () => {
 
       // Sync warehouse foam counts
       await updateFoamStock({
-        company_id: session.spreadsheetId,
+        company_id: session.companyId,
         open_cell_sets_on_hand: appData.warehouse.openCellSets,
         closed_cell_sets_on_hand: appData.warehouse.closedCellSets,
         lifetime_usage_open: appData.lifetimeUsage.openCell,

@@ -39,7 +39,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
           onLoginSuccess({
             username: authSession.email,
             companyName: authSession.companyName,
-            spreadsheetId: authSession.companyId,
+            companyId: authSession.companyId,
             role: authSession.role,
           });
         } else {
@@ -53,7 +53,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
                 onLoginSuccess({
                     username: authSession.email,
                     companyName: authSession.companyName,
-                    spreadsheetId: authSession.companyId,
+                    companyId: authSession.companyId,
                     role: authSession.role,
                 });
             } else {
@@ -70,7 +70,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
                 onLoginSuccess({
                     username: authSession.email,
                     companyName: authSession.companyName,
-                    spreadsheetId: authSession.companyId,
+                    companyId: authSession.companyId,
                     role: authSession.role,
                 });
             }
