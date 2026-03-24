@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
-import { User, Lock, Building2, ArrowRight, Loader2, AlertCircle, HardHat, KeyRound, Download } from 'lucide-react';
+import React, { useState } from 'react';
+import { User, Lock, Building2, ArrowRight, Loader2, AlertCircle, KeyRound, Download } from 'lucide-react';
 import { UserSession } from '../types';
-import { loginUser, signupUser, loginCrew } from '../services/api';
+import { signIn, signUp } from '../services/auth';
+import { loginCrew } from '../services/api';
 
 interface LoginPageProps {
   onLoginSuccess: (session: UserSession) => void;
@@ -17,9 +18,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
   const [error, setError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
-    username: '',
+    email: '',
     password: '',
     companyName: '',
+    displayName: '',
     crewPin: ''
   });
 
@@ -30,7 +32,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
 
     try {
       if (activeTab === 'crew') {
-        const session = await loginCrew(formData.username, formData.crewPin);
+        const session = await loginCrew(formData.email, formData.crewPin);
         if (session) {
             onLoginSuccess(session);
         } else {
@@ -39,18 +41,34 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
       } else {
         // Admin Login/Signup
         if (!isSignup) {
-            const session = await loginUser(formData.username, formData.password);
-            if (session) onLoginSuccess(session);
-            else setError("Invalid credentials.");
+            const authSession = await signIn(formData.email, formData.password);
+            if (authSession) {
+                onLoginSuccess({
+                    username: authSession.email,
+                    companyName: authSession.companyName,
+                    spreadsheetId: authSession.companyId,
+                    role: authSession.role,
+                });
+            } else {
+                setError("Invalid credentials.");
+            }
         } else {
-            if (!formData.companyName) {
-                setError("Company Name is required.");
+            if (!formData.companyName || !formData.displayName) {
+                setError("Company Name and Display Name are required.");
                 setIsLoading(false);
                 return;
             }
-            const session = await signupUser(formData.username, formData.password, formData.companyName);
-            if (session) onLoginSuccess(session);
-            else setError("Username taken or failed.");
+            const authSession = await signUp(formData.email, formData.password, formData.companyName, formData.displayName);
+            if (authSession) {
+                onLoginSuccess({
+                    username: authSession.email,
+                    companyName: authSession.companyName,
+                    spreadsheetId: authSession.companyId,
+                    role: authSession.role,
+                });
+            } else {
+                setError("Signup failed.");
+            }
         }
       }
     } catch (err: any) {
@@ -122,35 +140,52 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            
+
             {activeTab === 'admin' && isSignup && (
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Company Name</label>
-                <div className="relative">
-                  <Building2 className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                  <input 
-                    type="text" 
-                    required 
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
-                    placeholder="Acme Insulation"
-                    value={formData.companyName}
-                    onChange={e => setFormData({...formData, companyName: e.target.value})}
-                  />
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Company Name</label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
+                      placeholder="Acme Insulation"
+                      value={formData.companyName}
+                      onChange={e => setFormData({...formData, companyName: e.target.value})}
+                    />
+                  </div>
                 </div>
-              </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Your Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
+                      placeholder="John Doe"
+                      value={formData.displayName}
+                      onChange={e => setFormData({...formData, displayName: e.target.value})}
+                    />
+                  </div>
+                </div>
+              </>
             )}
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">{activeTab === 'crew' ? 'Company Username' : 'Username'}</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">{activeTab === 'crew' ? 'Company Username' : 'Email'}</label>
               <div className="relative">
                 <User className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                <input 
-                  type="text" 
-                  required 
+                <input
+                  type={activeTab === 'crew' ? 'text' : 'email'}
+                  required
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
-                  placeholder="company123"
-                  value={formData.username}
-                  onChange={e => setFormData({...formData, username: e.target.value})}
+                  placeholder={activeTab === 'crew' ? 'company123' : 'you@company.com'}
+                  value={formData.email}
+                  onChange={e => setFormData({...formData, email: e.target.value})}
                 />
               </div>
             </div>
@@ -160,9 +195,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Password</label>
                 <div className="relative">
                     <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                    <input 
-                    type="password" 
-                    required 
+                    <input
+                    type="password"
+                    required
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
                     placeholder="••••••••"
                     value={formData.password}
@@ -175,9 +210,9 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Crew Access PIN</label>
                 <div className="relative">
                     <KeyRound className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                    <input 
-                    type="password" 
-                    required 
+                    <input
+                    type="password"
+                    required
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
                     placeholder="Enter PIN"
                     value={formData.crewPin}
@@ -187,15 +222,15 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
                 </div>
             )}
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={isLoading}
               className="w-full bg-brand hover:bg-brand-hover text-white font-bold py-3 rounded-xl shadow-lg shadow-red-200 transition-all flex items-center justify-center gap-2 mt-4"
             >
               {isLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Authenticating...
+                  {activeTab === 'crew' ? 'Accessing...' : (isSignup ? 'Creating Account...' : 'Signing In...')}
                 </>
               ) : (
                 <>
