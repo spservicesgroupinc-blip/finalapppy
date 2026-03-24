@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { User, Lock, Building2, ArrowRight, Loader2, AlertCircle, KeyRound, Download } from 'lucide-react';
 import { UserSession } from '../types';
 import { signIn, signUp } from '../services/auth';
-import { loginCrew } from '../services/api';
 
 interface LoginPageProps {
   onLoginSuccess: (session: UserSession) => void;
@@ -32,11 +31,17 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
 
     try {
       if (activeTab === 'crew') {
-        const session = await loginCrew(formData.email, formData.crewPin);
-        if (session) {
-            onLoginSuccess(session);
+        // Crew members sign in with email + their PIN as the password
+        const authSession = await signIn(formData.email, formData.crewPin);
+        if (authSession) {
+          onLoginSuccess({
+            username: authSession.email,
+            companyName: authSession.companyName,
+            spreadsheetId: authSession.companyId,
+            role: authSession.role,
+          });
         } else {
-            setError("Invalid Company Username or PIN");
+          setError('Invalid credentials.');
         }
       } else {
         // Admin Login/Signup
@@ -176,51 +181,40 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
             )}
 
             <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">{activeTab === 'crew' ? 'Company Username' : 'Email'}</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Email</label>
               <div className="relative">
                 <User className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
                 <input
-                  type={activeTab === 'crew' ? 'text' : 'email'}
+                  type="email"
                   required
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
-                  placeholder={activeTab === 'crew' ? 'company123' : 'you@company.com'}
+                  placeholder="you@company.com"
                   value={formData.email}
                   onChange={e => setFormData({...formData, email: e.target.value})}
                 />
               </div>
             </div>
 
-            {activeTab === 'admin' ? (
-                <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Password</label>
-                <div className="relative">
-                    <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                    <input
-                    type="password"
-                    required
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
-                    placeholder="••••••••"
-                    value={formData.password}
-                    onChange={e => setFormData({...formData, password: e.target.value})}
-                    />
-                </div>
-                </div>
-            ) : (
-                <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Crew Access PIN</label>
-                <div className="relative">
-                    <KeyRound className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                    <input
-                    type="password"
-                    required
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
-                    placeholder="Enter PIN"
-                    value={formData.crewPin}
-                    onChange={e => setFormData({...formData, crewPin: e.target.value})}
-                    />
-                </div>
-                </div>
-            )}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">
+                {activeTab === 'crew' ? 'Crew Access PIN' : 'Password'}
+              </label>
+              <div className="relative">
+                {activeTab === 'crew'
+                  ? <KeyRound className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
+                  : <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-400" />}
+                <input
+                  type="password"
+                  required
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand outline-none transition-all"
+                  placeholder={activeTab === 'crew' ? 'Enter PIN' : '••••••••'}
+                  value={activeTab === 'crew' ? formData.crewPin : formData.password}
+                  onChange={e => activeTab === 'crew'
+                    ? setFormData({...formData, crewPin: e.target.value})
+                    : setFormData({...formData, password: e.target.value})}
+                />
+              </div>
+            </div>
 
             <button
               type="submit"
@@ -256,7 +250,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
 
           {activeTab === 'crew' && (
              <div className="mt-6 text-center text-xs text-slate-400">
-                Contact your administrator if you don't have the Company ID or Crew PIN.
+                Contact your administrator for your crew email and PIN.
              </div>
           )}
 

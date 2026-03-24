@@ -2,18 +2,18 @@
 import React, { useState } from 'react';
 import { Upload, Save, Loader2, Users, KeyRound, ShieldCheck, Copy } from 'lucide-react';
 import { CalculatorState } from '../types';
-import { uploadImage } from '../services/api';
+import { uploadLogo } from '../services/storage';
 
 interface ProfileProps {
   state: CalculatorState;
   onUpdateProfile: (field: string, value: string) => void;
   onManualSync: () => void;
   syncStatus: string;
-  username?: string; // Passed from session to display Company ID
-  spreadsheetId?: string; // Needed for upload auth
+  username?: string;
+  companyId?: string; // Supabase company ID for storage path
 }
 
-export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onManualSync, syncStatus, username, spreadsheetId }) => {
+export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onManualSync, syncStatus, username, companyId }) => {
   const [isUploading, setIsUploading] = useState(false);
 
   const copyToClipboard = (text: string) => {
@@ -23,36 +23,22 @@ export const Profile: React.FC<ProfileProps> = ({ state, onUpdateProfile, onManu
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
-    // Check size (max 5MB)
+
     if (file.size > 5 * 1024 * 1024) {
-        alert("File too large. Max 5MB.");
-        return;
+      alert('File too large. Max 5MB.');
+      return;
     }
 
     setIsUploading(true);
     try {
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-            const base64 = reader.result as string;
-            
-            if (spreadsheetId) {
-                const url = await uploadImage(base64, spreadsheetId, "company_logo.jpg");
-                if (url) {
-                    onUpdateProfile('logoUrl', url);
-                } else {
-                    alert("Upload failed. Please try again.");
-                }
-            } else {
-                alert("Online session required to upload logo.");
-            }
-            setIsUploading(false);
-        };
-        reader.readAsDataURL(file);
-    } catch (err) {
-        console.error(err);
-        alert("Error reading file.");
-        setIsUploading(false);
+      const id = companyId || 'shared';
+      const url = await uploadLogo(id, file);
+      onUpdateProfile('logoUrl', url);
+    } catch (err: any) {
+      console.error(err);
+      alert('Upload failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsUploading(false);
     }
   };
 

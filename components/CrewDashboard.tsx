@@ -7,7 +7,8 @@ import {
     MessageSquare, History
 } from 'lucide-react';
 import { CalculatorState, EstimateRecord } from '../types';
-import { logCrewTime, completeJob } from '../services/api';
+import { upsertEstimate } from '../services/estimates';
+import { getCurrentSession } from '../services/auth';
 
 interface CrewDashboardProps {
   state: CalculatorState;
@@ -111,18 +112,10 @@ export const CrewDashboard: React.FC<CrewDashboardProps> = ({ state, onLogout, s
           const endTime = new Date().toISOString();
           setIsSyncingTime(true);
           
-          // Log to backend
-          if (selectedJob.workOrderSheetUrl) {
-            let user = "Crew";
-            try {
-                const s = localStorage.getItem('foamProSession');
-                if (s) user = JSON.parse(s).username;
-            } catch(e) {
-                console.warn("Could not retrieve session user for timer log");
-            }
-            
-            await logCrewTime(selectedJob.workOrderSheetUrl, jobStartTime, endTime, user);
-          }
+          // Log time locally — included in actuals on completion
+          // (No remote GAS call needed; Supabase persists everything on job completion)
+          console.log(`Timer stopped: ${jobStartTime} → ${endTime} by crew`);
+          
 
           const sessionDurationHours = (new Date(endTime).getTime() - new Date(jobStartTime).getTime()) / (1000 * 60 * 60);
 
@@ -163,41 +156,40 @@ export const CrewDashboard: React.FC<CrewDashboardProps> = ({ state, onLogout, s
       setIsCompleting(true);
       
       try {
-        const sessionStr = localStorage.getItem('foamProSession');
-        if (!sessionStr) throw new Error("Session expired. Please log out and back in.");
-        
-        const session = JSON.parse(sessionStr);
-        if (!session.spreadsheetId) throw new Error("Invalid session data. Please log out and back in.");
+        // Get current user from Supabase auth
+        const authSession = await getCurrentSession();
+        const completedBy = authSession?.email || 'Crew';
 
-        const finalData = {
+        const updatedEstimate = {
+          ...selectedJob,
+          executionStatus: 'Completed' as const,
+          lastModified: new Date().toISOString(),
+          actuals: {
             ...actuals,
+            completedBy,
             completionDate: new Date().toISOString(),
-            completedBy: session.username || "Crew"
+          },
         };
 
-        const success = await completeJob(selectedJob.id, finalData, session.spreadsheetId);
-        
-        if (success) {
-            setShowCompletionModal(false);
-            setSelectedJobId(null);
-            
-            // Sync DOWN to get the latest status from server (Completed)
-            // This prevents local "In Progress" state from overwriting the server
-            setTimeout(async () => {
-                try {
-                    await onSync(); // This calls forceRefresh (Sync Down)
-                    alert("Job Completed Successfully!");
-                } catch(e) {
-                    console.error("Sync failed after completion", e);
-                    window.location.reload();
-                }
-            }, 1000);
-        } else {
-            alert("Error syncing completion. Please check your internet connection.");
-        }
+        // Save to Supabase
+        await upsertEstimate(updatedEstimate);
+
+        // Update local state via onSync (force refresh from Supabase)
+        setShowCompletionModal(false);
+        setSelectedJobId(null);
+
+        setTimeout(async () => {
+          try {
+            await onSync();
+            alert('Job Completed Successfully!');
+          } catch (e) {
+            console.error('Sync failed after completion', e);
+            window.location.reload();
+          }
+        }, 500);
       } catch (error: any) {
-         console.error("Completion Error:", error);
-         alert(`An error occurred: ${error.message || "Unknown error"}`);
+         console.error('Completion Error:', error);
+         alert(`An error occurred: ${error.message || 'Unknown error'}`);
       } finally {
          setIsCompleting(false);
       }

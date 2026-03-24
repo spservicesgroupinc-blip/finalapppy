@@ -1,176 +1,208 @@
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useCalculator, DEFAULT_STATE } from '../context/CalculatorContext';
-import { syncUp, syncDown } from '../services/api';
+import { fetchSettings, updateSettings } from '../services/settings';
+import { fetchFoamStock, updateFoamStock, fetchWarehouseItems } from '../services/warehouse';
+import { getCurrentSession } from '../services/auth';
+import { supabase } from '../lib/supabase';
+import { DbCompanySettings } from '../types';
 
+/**
+ * useSync — Supabase-only sync hook.
+ *
+ * DOWN: On login, loads company settings + warehouse from Supabase.
+ * UP: When appData changes, persists settings + warehouse to Supabase (debounced).
+ * Auth: Recovers Supabase session on page reload.
+ */
 export const useSync = () => {
   const { state, dispatch } = useCalculator();
   const { session, appData, ui } = state;
-  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSyncedStateRef = useRef<string>("");
 
-  // 1. SESSION RECOVERY
+  // ── 1. SESSION RECOVERY on page reload ──────────────────────────────────
   useEffect(() => {
-    const savedSession = localStorage.getItem('foamProSession');
-    if (savedSession) {
-      try {
-        const parsedSession = JSON.parse(savedSession);
-        dispatch({ type: 'SET_SESSION', payload: parsedSession });
-      } catch (e) {
-        localStorage.removeItem('foamProSession');
-      }
-    } else {
-        // If no session, ensure loading stops
-        dispatch({ type: 'SET_LOADING', payload: false });
-    }
-  }, [dispatch]);
-
-  // 2. CLOUD-FIRST INITIALIZATION
-  useEffect(() => {
-    if (!session) return;
-
-    const initializeApp = async () => {
+    const recoverSession = async () => {
       dispatch({ type: 'SET_LOADING', payload: true });
-      dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-      
       try {
-          // Attempt Fetch from Cloud (Source of Truth)
-          const cloudData = await syncDown(session.spreadsheetId);
-          
-          if (cloudData) {
-            // Deep merge cloud data over default state
-            const mergedState = {
-                ...DEFAULT_STATE,
-                ...cloudData,
-                // Ensure deeply nested objects are merged correctly if partial
-                companyProfile: { ...DEFAULT_STATE.companyProfile, ...(cloudData.companyProfile || {}) },
-                warehouse: { ...DEFAULT_STATE.warehouse, ...(cloudData.warehouse || {}) },
-                costs: { ...DEFAULT_STATE.costs, ...(cloudData.costs || {}) },
-                yields: { ...DEFAULT_STATE.yields, ...(cloudData.yields || {}) },
-                expenses: { ...DEFAULT_STATE.expenses, ...(cloudData.expenses || {}) },
-                // Merge lifetime usage
-                lifetimeUsage: { ...DEFAULT_STATE.lifetimeUsage, ...(cloudData.lifetimeUsage || {}) }
-            };
-
-            dispatch({ type: 'LOAD_DATA', payload: mergedState });
-            dispatch({ type: 'SET_INITIALIZED', payload: true }); 
-            lastSyncedStateRef.current = JSON.stringify(mergedState);
-            dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
-            
-            // Clear successful sync status after delay
-            setTimeout(() => {
-                dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' });
-            }, 3000);
-            
-            // Check if PIN is missing and warn
-            if (!mergedState.companyProfile.crewAccessPin) {
-                console.warn("Crew PIN missing from cloud data");
-                dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Warning: Crew PIN not configured.' } });
-            }
-
-          } else {
-             throw new Error("Empty response from cloud");
-          }
-      } catch (e) {
-          console.error("Cloud sync failed:", e);
-          
-          // Fallback: If cloud fails (offline), try Local Storage
-          const localSaved = localStorage.getItem(`foamProState_${session.username}`);
-          
-          if (localSaved) {
-              const localState = JSON.parse(localSaved);
-              dispatch({ type: 'LOAD_DATA', payload: localState });
-              dispatch({ type: 'SET_INITIALIZED', payload: true });
-              dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' }); // Warning state
-              dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Offline Mode: Using local backup.' } });
-          } else {
-              // Critical Error: No Cloud and No Local Backup.
-              dispatch({ type: 'LOAD_DATA', payload: DEFAULT_STATE });
-              dispatch({ type: 'SET_INITIALIZED', payload: true });
-              dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
-              dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Sync Failed. Check Internet Connection.' } });
-          }
-      } finally {
+        const authSession = await getCurrentSession();
+        if (authSession) {
+          dispatch({
+            type: 'SET_SESSION',
+            payload: {
+              username: authSession.email,
+              companyName: authSession.companyName,
+              spreadsheetId: authSession.companyId, // companyId stored here for compatibility
+              role: authSession.role,
+            },
+          });
+        } else {
           dispatch({ type: 'SET_LOADING', payload: false });
+        }
+      } catch {
+        dispatch({ type: 'SET_LOADING', payload: false });
       }
     };
 
-    initializeApp();
-  }, [session, dispatch]);
+    recoverSession();
 
-  // 3. AUTO-SYNC (Write to Cloud)
+    // Also listen for auth state changes (tab focus, token refresh, etc.)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, sbSession) => {
+      if (event === 'SIGNED_OUT' || !sbSession) {
+        dispatch({ type: 'LOGOUT' });
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [dispatch]);
+
+  // ── 2. FETCH DATA FROM SUPABASE after session is established ────────────
   useEffect(() => {
-    if (ui.isLoading || !ui.isInitialized || !session) return;
-    if (session.role === 'crew') return; // Crew doesn't auto-sync UP generally
+    if (!session) return;
 
-    const currentStateStr = JSON.stringify(appData);
-    
-    // Always backup to local storage
-    localStorage.setItem(`foamProState_${session.username}`, currentStateStr);
-
-    // If state hasn't changed from what we last saw from/sent to cloud, do nothing
-    if (currentStateStr === lastSyncedStateRef.current) return;
-
-    // Debounce the Cloud Sync
-    dispatch({ type: 'SET_SYNC_STATUS', payload: 'pending' });
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-
-    syncTimerRef.current = setTimeout(async () => {
+    const fetchData = async () => {
+      dispatch({ type: 'SET_LOADING', payload: true });
       dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-      
-      const success = await syncUp(appData, session.spreadsheetId);
-      
-      if (success) {
-        lastSyncedStateRef.current = currentStateStr;
+
+      try {
+        // Fetch settings and warehouse in parallel
+        const [settings, foamStock, warehouseItems] = await Promise.all([
+          fetchSettings(),
+          fetchFoamStock(),
+          fetchWarehouseItems(),
+        ]);
+
+        const mergedState: Partial<typeof DEFAULT_STATE> = { ...DEFAULT_STATE };
+
+        if (settings) {
+          mergedState.companyProfile = { ...DEFAULT_STATE.companyProfile, ...settings.company_profile };
+          mergedState.yields = { ...DEFAULT_STATE.yields, ...settings.yields };
+          mergedState.costs = { ...DEFAULT_STATE.costs, ...settings.costs };
+          mergedState.pricingMode = settings.pricing_mode || DEFAULT_STATE.pricingMode;
+          mergedState.sqFtRates = { ...DEFAULT_STATE.sqFtRates, ...settings.sqft_rates };
+          mergedState.expenses = { ...DEFAULT_STATE.expenses, ...settings.expenses_defaults };
+        }
+
+        if (foamStock) {
+          mergedState.warehouse = {
+            openCellSets: foamStock.open_cell_sets_on_hand ?? 0,
+            closedCellSets: foamStock.closed_cell_sets_on_hand ?? 0,
+            items: warehouseItems.map(item => ({
+              id: item.id,
+              name: item.name,
+              quantity: item.quantity_on_hand,
+              unit: item.unit,
+              unitCost: item.unit_cost,
+            })),
+          };
+          mergedState.lifetimeUsage = {
+            openCell: foamStock.lifetime_usage_open ?? 0,
+            closedCell: foamStock.lifetime_usage_closed ?? 0,
+          };
+        }
+
+        dispatch({ type: 'LOAD_DATA', payload: mergedState });
+        dispatch({ type: 'SET_INITIALIZED', payload: true });
         dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
         setTimeout(() => dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' }), 3000);
-      } else {
+      } catch (err) {
+        console.error('Supabase sync down failed:', err);
+        dispatch({ type: 'LOAD_DATA', payload: DEFAULT_STATE });
+        dispatch({ type: 'SET_INITIALIZED', payload: true });
         dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
+        dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Failed to load data from cloud.' } });
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false });
       }
-    }, 3000); 
+    };
 
-    return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current); };
-  }, [appData, ui.isLoading, ui.isInitialized, session, dispatch]);
+    fetchData();
+  }, [session, dispatch]);
 
-  // 4. MANUAL FORCE SYNC (Push)
-  const handleManualSync = async () => {
+  // ── 3. MANUAL FORCE REFRESH (pull from Supabase) ────────────────────────
+  const forceRefresh = useCallback(async () => {
     if (!session) return;
     dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-    
-    const success = await syncUp(appData, session.spreadsheetId);
-    
-    if (success) {
-      lastSyncedStateRef.current = JSON.stringify(appData);
-      dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
-      dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Cloud Sync Complete' } });
-      setTimeout(() => dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' }), 3000);
-    } else {
-      dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
-      dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Sync Failed. Check Internet.' } });
-    }
-  };
 
-  // 5. FORCE REFRESH (Pull) - New for Crew Dashboard
-  const forceRefresh = async () => {
-      if (!session) return;
-      dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-      try {
-          const cloudData = await syncDown(session.spreadsheetId);
-          if (cloudData) {
-              const mergedState = { ...state.appData, ...cloudData };
-              dispatch({ type: 'LOAD_DATA', payload: mergedState });
-              lastSyncedStateRef.current = JSON.stringify(mergedState);
-              dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
-              setTimeout(() => dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' }), 3000);
-          } else {
-              throw new Error("Failed to fetch data");
-          }
-      } catch (e) {
-          console.error(e);
-          dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
-          dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Refresh Failed.' } });
+    try {
+      const [settings, foamStock, warehouseItems] = await Promise.all([
+        fetchSettings(),
+        fetchFoamStock(),
+        fetchWarehouseItems(),
+      ]);
+
+      const mergedState: Partial<typeof DEFAULT_STATE> = {};
+
+      if (settings) {
+        mergedState.companyProfile = { ...DEFAULT_STATE.companyProfile, ...settings.company_profile };
+        mergedState.yields = { ...DEFAULT_STATE.yields, ...settings.yields };
+        mergedState.costs = { ...DEFAULT_STATE.costs, ...settings.costs };
+        mergedState.pricingMode = settings.pricing_mode || DEFAULT_STATE.pricingMode;
+        mergedState.sqFtRates = { ...DEFAULT_STATE.sqFtRates, ...settings.sqft_rates };
+        mergedState.expenses = { ...DEFAULT_STATE.expenses, ...settings.expenses_defaults };
       }
-  };
+
+      if (foamStock) {
+        mergedState.warehouse = {
+          openCellSets: foamStock.open_cell_sets_on_hand ?? 0,
+          closedCellSets: foamStock.closed_cell_sets_on_hand ?? 0,
+          items: warehouseItems.map(item => ({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity_on_hand,
+            unit: item.unit,
+            unitCost: item.unit_cost,
+          })),
+        };
+        mergedState.lifetimeUsage = {
+          openCell: foamStock.lifetime_usage_open ?? 0,
+          closedCell: foamStock.lifetime_usage_closed ?? 0,
+        };
+      }
+
+      dispatch({ type: 'UPDATE_DATA', payload: mergedState });
+      dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
+      setTimeout(() => dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' }), 3000);
+    } catch (err) {
+      console.error('Force refresh failed:', err);
+      dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
+    }
+  }, [session, dispatch]);
+
+  // ── 4. MANUAL SYNC (push settings + warehouse to Supabase) ──────────────
+  const handleManualSync = useCallback(async () => {
+    if (!session) return;
+    dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
+
+    try {
+      const settingsPayload: Partial<DbCompanySettings> = {
+        company_id: session.spreadsheetId, // companyId
+        company_profile: appData.companyProfile,
+        yields: appData.yields,
+        costs: appData.costs,
+        pricing_mode: appData.pricingMode,
+        sqft_rates: appData.sqFtRates,
+        expenses_defaults: appData.expenses,
+      };
+
+      await updateSettings(settingsPayload);
+
+      // Sync warehouse foam counts
+      await updateFoamStock({
+        company_id: session.spreadsheetId,
+        open_cell_sets_on_hand: appData.warehouse.openCellSets,
+        closed_cell_sets_on_hand: appData.warehouse.closedCellSets,
+        lifetime_usage_open: appData.lifetimeUsage.openCell,
+        lifetime_usage_closed: appData.lifetimeUsage.closedCell,
+      });
+
+      dispatch({ type: 'SET_SYNC_STATUS', payload: 'success' });
+      dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'success', message: 'Saved to Cloud' } });
+      setTimeout(() => dispatch({ type: 'SET_SYNC_STATUS', payload: 'idle' }), 3000);
+    } catch (err: any) {
+      console.error('Manual sync failed:', err);
+      dispatch({ type: 'SET_SYNC_STATUS', payload: 'error' });
+      dispatch({ type: 'SET_NOTIFICATION', payload: { type: 'error', message: 'Sync failed. Check connection.' } });
+    }
+  }, [session, appData, dispatch]);
 
   return { handleManualSync, forceRefresh };
 };

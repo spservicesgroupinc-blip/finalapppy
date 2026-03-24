@@ -13,7 +13,6 @@ import { useSync } from '../hooks/useSync';
 import { useEstimates } from '../hooks/useEstimates';
 import { calculateResults } from '../utils/calculatorHelpers';
 import { generateEstimatePDF, generateDocumentPDF, generateWorkOrderPDF } from '../utils/pdfGenerator';
-import { syncUp } from '../services/api';
 
 import LoginPage from './LoginPage';
 import { Layout } from './Layout';
@@ -173,7 +172,6 @@ const SprayFoamCalculator: React.FC = () => {
   };
 
   const handleSaveAndMarkPaid = async (lines: InvoiceLineItem[]) => {
-      // Pass lines here to ensure they are saved.
       const totalFromLines = lines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
 
       const savedRecord = await saveEstimate(results, 'Invoiced', {
@@ -182,14 +180,6 @@ const SprayFoamCalculator: React.FC = () => {
       });
 
       if (savedRecord) {
-          if (session?.spreadsheetId) {
-             dispatch({ type: 'SET_SYNC_STATUS', payload: 'syncing' });
-             const stateSnapshot = {
-                 ...appData,
-                 savedEstimates: appData.savedEstimates.map(e => e.id === savedRecord.id ? savedRecord : e)
-             };
-             await syncUp(stateSnapshot, session.spreadsheetId);
-          }
           await handleMarkPaid(savedRecord.id);
       }
   };
@@ -483,7 +473,7 @@ const SprayFoamCalculator: React.FC = () => {
                 onManualSync={handleManualSync}
                 syncStatus={ui.syncStatus}
                 username={session?.username} 
-                spreadsheetId={session?.spreadsheetId} 
+                companyId={session?.spreadsheetId} 
             />
         )}
     </Layout>
