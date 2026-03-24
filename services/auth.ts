@@ -33,7 +33,13 @@ export const signUp = async (
   if (error) throw new Error(error.message);
   if (!data.user) throw new Error('Signup failed');
 
-  // Wait briefly for trigger to create profile
+  // If email confirmation is required Supabase returns a user but no session.
+  // In that case we can't query the profile yet — tell the caller to check email.
+  if (!data.session) {
+    throw new Error('CHECK_EMAIL');
+  }
+
+  // Wait briefly for the DB trigger to create the profile row
   await new Promise((r) => setTimeout(r, 1000));
 
   return getSessionFromUser(data.user.id);

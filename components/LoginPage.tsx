@@ -15,6 +15,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
   const [isSignup, setIsSignup] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -71,17 +72,41 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
                     spreadsheetId: authSession.companyId,
                     role: authSession.role,
                 });
-            } else {
-                setError("Signup failed.");
             }
         }
       }
     } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+      if (err.message === 'CHECK_EMAIL') {
+        setConfirmEmail(formData.email);
+      } else {
+        setError(err.message || "An unexpected error occurred.");
+      }
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (confirmEmail) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+        <div className="bg-white w-full max-w-md rounded-2xl shadow-xl p-10 text-center animate-in fade-in zoom-in duration-300">
+          <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <ArrowRight className="w-8 h-8 text-emerald-600" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">Check Your Email</h2>
+          <p className="text-slate-500 text-sm mb-6">
+            A confirmation link was sent to <strong>{confirmEmail}</strong>. Click it to activate your account, then come back to log in.
+          </p>
+          <button
+            onClick={() => { setConfirmEmail(null); setIsSignup(false); }}
+            className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl transition-all hover:bg-slate-700"
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
