@@ -275,7 +275,7 @@ export const useEstimates = () => {
       // 5. Persist warehouse update to Supabase (background)
       if (session?.companyId) {
         updateFoamStock({
-          company_id: session.spreadsheetId,
+          company_id: session.companyId,
           open_cell_sets_on_hand: newWarehouse.openCellSets,
           closed_cell_sets_on_hand: newWarehouse.closedCellSets,
         }).catch(err => console.error('Failed to sync warehouse to Supabase:', err));
@@ -284,7 +284,7 @@ export const useEstimates = () => {
         newWarehouse.items.forEach(item => {
           upsertWarehouseItem({
             id: item.id,
-            company_id: session.spreadsheetId,
+            company_id: session.companyId,
             name: item.name,
             quantity_on_hand: item.quantity,
             unit: item.unit,
@@ -316,7 +316,7 @@ export const useEstimates = () => {
     // Sync foam stock to Supabase
     if (session?.companyId) {
       updateFoamStock({
-        company_id: session.spreadsheetId,
+        company_id: session.companyId,
         open_cell_sets_on_hand: newWarehouse.openCellSets,
         closed_cell_sets_on_hand: newWarehouse.closedCellSets,
       }).catch(err => console.error('Failed to sync warehouse after PO:', err));

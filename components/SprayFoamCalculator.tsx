@@ -473,7 +473,7 @@ const SprayFoamCalculator: React.FC = () => {
                 onManualSync={handleManualSync}
                 syncStatus={ui.syncStatus}
                 username={session?.username} 
-                companyId={session?.spreadsheetId} 
+                companyId={session?.companyId} 
             />
         )}
     </Layout>

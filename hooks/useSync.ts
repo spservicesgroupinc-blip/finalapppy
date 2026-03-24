@@ -174,7 +174,7 @@ export const useSync = () => {
 
     try {
       const settingsPayload: Partial<DbCompanySettings> = {
-        company_id: session.companyId, // companyId
+        company_id: session.companyId,
         company_profile: appData.companyProfile,
         yields: appData.yields,
         costs: appData.costs,
