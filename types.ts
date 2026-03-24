@@ -297,9 +297,7 @@ export interface CalculatorState {
 export interface UserSession {
   username: string;
   companyName: string;
-  spreadsheetId: string;
-  folderId?: string;
-  token?: string;
+  companyId: string;
   role: 'admin' | 'crew';
 }
 

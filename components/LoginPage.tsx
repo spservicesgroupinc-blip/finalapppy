@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { User, Lock, Building2, ArrowRight, Loader2, AlertCircle, KeyRound, Download } from 'lucide-react';
 import { UserSession } from '../types';
 import { signIn, signUp } from '../services/auth';
+import { supabaseMisconfigured } from '../lib/supabase';
 
 interface LoginPageProps {
   onLoginSuccess: (session: UserSession) => void;
@@ -161,6 +162,13 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
           <h2 className="text-xl font-bold text-slate-800 mb-6 text-center">
              {activeTab === 'crew' ? 'Job Execution Portal' : (isSignup ? 'Create Company Account' : 'Welcome Back')}
           </h2>
+
+          {supabaseMisconfigured && (
+            <div className="mb-4 p-3 bg-amber-50 text-amber-700 text-sm rounded-lg flex items-start gap-2 border border-amber-200">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span><strong>Configuration missing.</strong> VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is not set. Add them to .env.local and restart the dev server, or set them in Vercel environment variables.</span>
+            </div>
+          )}
 
           {error && (
             <div className="mb-6 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2 border border-red-100">
